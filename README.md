@@ -1,36 +1,39 @@
 # zkci: verifiable-CI prototype
 
-Milestones M1–M3 of [`docs/zk-ci-design.md`](../docs/zk-ci-design.md). The
+Milestones M1–M3 of [`docs/zk-ci-design.md`](docs/zk-ci-design.md). The
 goal is to prove that a crate's unit tests passed on commit C, so that a
-small verifier, rather than a full CI run, can set the merge gate. This
-directory is for measuring cost; nothing here is meant to ship. Measured
-numbers are in [`BENCH.md`](BENCH.md).
-
-This is its own Cargo workspace, `exclude`d from the root one, so the SP1 SDK
-stays out of the root lockfile and out of root CI.
+small verifier, rather than a full CI run, can set the merge gate. This repo
+is for measuring cost; nothing here is meant to ship. Measured numbers are in
+[`BENCH.md`](BENCH.md).
 
 | Path | Crate | What it is |
 |---|---|---|
 | `harness/` | `zkci-harness` | M1. Collects existing `#[test]` fns at build time, runs them in order, and returns a `SuiteReport` |
-| `guest/` | `zkci-guest` | M2. The SP1 guest. Compiles `api-types/src/tests.rs` unmodified and commits the report. Built for the host, it runs the same cases natively (native mode) |
+| `guest/` | `zkci-guest` | M2. The SP1 guest. Compiles `targets/example/src/tests.rs` unmodified and commits the report. Built for the host, it runs the same cases natively (native mode) |
 | `prover/` | `zkci-prove` | M2. Host binary with `execute` (no proof, prints cycles), `vkey`, and `prove` (compressed proof written into a receipt envelope) |
 | `verify/` | `zkci-verify` | M3. Verifies a receipt against an expected verifying key (or a rebuilt ELF) and git tree. Prints a JSON verdict and exits 0/1 |
 | `prove.sh` | | Driver: `build`, `execute`, `vkey`, `prove`, `verify` |
+| `targets/example` | `zkci-example` | The code under test: a SemVer parser, comparator and requirement matcher with 22 unit tests in `src/tests.rs`. A workspace member, so `cargo test --workspace` also runs its tests natively |
 
 ## Running it
 
 Requires SP1 v6.9.0 (`sp1up --version v6.9.0` installs `cargo-prove` and the
-`succinct` toolchain), `protoc` (the SP1 SDK compiles protobufs, as the
-root workspace's libsignal does) and Docker for reproducible builds. The SP1
-version must match the exact `sp1-*` pins in `Cargo.toml`.
+`succinct` toolchain), `protoc` (the SP1 SDK compiles protobufs) and Docker
+for reproducible builds. The SP1 version must match the exact `sp1-*` pins in
+`Cargo.toml`.
 
 ```sh
-zkci/prove.sh execute                     # reproducible build in Docker, then execute
-ZKCI_LOCAL_BUILD=1 zkci/prove.sh execute  # build with the local toolchain instead
-cargo run --manifest-path zkci/Cargo.toml -p zkci-guest -- "$(git rev-parse HEAD^{tree})"   # native mode
-cargo test --manifest-path zkci/Cargo.toml --workspace                   # the prototype's own tests
-cargo test --manifest-path zkci/Cargo.toml -p zkci-harness --features build   # and the collector's
+git clone git@github.com:contrats-avant-garde/zkci.git
+./prove.sh execute                        # reproducible build in Docker, then execute
+ZKCI_LOCAL_BUILD=1 ./prove.sh execute     # build with the local toolchain instead
+cargo run -p zkci-guest -- "$(git rev-parse HEAD^{tree})"   # native mode
+cargo test --workspace                    # the prototype's tests and the example's
+cargo test -p zkci-harness --features build   # and the collector's
 ```
+
+The proof claims this repository's `HEAD^{tree}`. `prove` refuses to run
+with uncommitted changes, since the guest would run code that tree does not
+contain (`ZKCI_ALLOW_DIRTY=1` overrides, and `execute` only warns).
 
 For a per-test cycle breakdown, build the guest with
 `cargo prove build --features cycle-tracker` and run it with a `zkci-prove`
@@ -57,11 +60,16 @@ because both docs sites are blocked from the environment this was built in.
 RISC Zero's cheaper image ID is the one real ergonomic edge. It is not a
 build-reproducibility edge, so the rule chooses SP1.
 
-**M0 target: `api-types`.** It is the smallest crate in the repo with unit
-tests and no I/O. Its only dependencies are `serde` and `serde_json`, it
-already builds for `wasm32-unknown-unknown`, and its 25 tests are pure
-serialization assertions. `plugins/api` has fewer lines but pulls in
-`service-bundle` (ed25519, sha2).
+**M0 target: an example crate in this repo.** `targets/example` is a SemVer
+parser, comparator and requirement matcher written for zkci, so the code
+under test ships with the prototype and anyone can clone and run it. It is
+pure logic with no dependencies beyond `std`. Its 22 tests use only the
+public API, with no I/O, clock, threads or randomness, and their cost
+spreads widely, from parsing one string to sorting 320 generated versions,
+which gives the per-test breakdown something to show. One test returns
+`Result` and one is `#[should_panic]`, so both of the collector's special
+paths are exercised: the first runs through the `Outcome` wrapper, the
+second is reported as excluded.
 
 **Collection at build time, not `#[zkci::test]` or `inventory`.** Outside
 `cargo test`, rustc drops `#[test]` functions entirely. The guest's build
@@ -74,8 +82,8 @@ would mean editing every test in the target crate.
 The collector reports every test it skips, with the reason (`async`,
 `#[should_panic]`, `#[ignore]`, custom test attributes, `cfg`-gated). Those
 names are committed in the report, so a proof can never quietly cover fewer
-tests than the crate has. For `api-types` that is one test,
-`fill_rejects_arity_mismatch_in_debug`, which is `#[should_panic]`; a
+tests than the crate has. For `zkci-example` that is one test,
+`bump_major_past_u64_max_panics`, which is `#[should_panic]`; a
 `panic = "abort"` guest cannot run that kind of test.
 
 **Public values.** The guest commits one `SuiteReport`: report version,
@@ -107,19 +115,21 @@ the guest from that commit and gets the same verifying key.
   `pkg-containers.githubusercontent.com`, which the environment this was
   built in cannot reach. The numbers in `BENCH.md` come from a local
   toolchain build of the same source.
-- **Local builds embed absolute paths.** Panic locations put the checkout
-  path and the build script's `OUT_DIR` into the ELF. A local build is
-  byte-identical on rebuild at the same path, but a different path gives a
-  different verifying key. The Docker build mounts the repo at a fixed path.
+- **Local builds embed absolute paths.** Panic locations put the build
+  script's `OUT_DIR`, which lies under the checkout, and dependency sources
+  under `$CARGO_HOME` into the ELF. A local build is byte-identical on
+  rebuild at the same path, but a different path gives a different verifying
+  key. The Docker build mounts the repo at a fixed path.
 - **`zkci-verify` links the full `sp1-sdk`** (its light prover, which
   verifies but never proves), so it is not yet the "tiny verifier". The
   smaller option, `sp1-verifier`'s `SP1CompressedVerifierRaw`, cannot verify
   these proofs: it rejects single-shard proofs, and this suite is one shard.
   It also does **not** check the guest's exit code. A Groth16 wrap is the
   realistic path to milliseconds-scale verification.
-- **The guest has its own lockfile.** It compiles `api-types` against
-  `zkci/Cargo.lock`, which can resolve different `serde`/`serde_json`
-  versions than the root lockfile CI tests with.
+- **Targets compile against this repo's lockfile.** The example has no
+  dependencies, so this does not matter yet. A target from another
+  repository would be built against this `Cargo.lock`, which can resolve
+  different versions than the lockfile its own CI tests with.
 - **`#[should_panic]` tests can't run in a guest**, because the guest is
   `panic = "abort"`. Proving them needs either per-test proofs of a non-zero
   exit (design §5), or rewriting them to return `Result`.

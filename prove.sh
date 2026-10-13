@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 # Verifiable-CI prototype driver (docs/zk-ci-design.md, M2).
 #
-#   zkci/prove.sh build     reproducible guest build in Docker -> target/zkci/zkci-guest.elf
-#   zkci/prove.sh execute   build, then run the guest without proving: cycle counts as JSON
-#   zkci/prove.sh vkey      build, then write the verifying-key hash to target/zkci/elf.id
-#   zkci/prove.sh prove     build, vkey, then a compressed proof -> target/zkci/receipt.json
-#   zkci/prove.sh verify    check target/zkci/receipt.json against HEAD's tree and the ELF
+#   ./prove.sh build     reproducible guest build in Docker -> target/zkci/zkci-guest.elf
+#   ./prove.sh execute   build, then run the guest without proving: cycle counts as JSON
+#   ./prove.sh vkey      build, then write the verifying-key hash to target/zkci/elf.id
+#   ./prove.sh prove     build, vkey, then a compressed proof -> target/zkci/receipt.json
+#   ./prove.sh verify    check target/zkci/receipt.json against this repo's tree and the ELF
+#
+# The code under test is targets/example, in this repository, so the tree a
+# proof claims is this repository's HEAD^{tree}.
 #
 # Environment:
 #   ZKCI_LOCAL_BUILD=1  build with the installed `succinct` toolchain instead of
 #                       Docker. Faster, not reproducible: a verifier rebuilding in
 #                       Docker may derive a different verifying key.
 #   ZKCI_SKIP_BUILD=1   reuse target/zkci/zkci-guest.elf as it is.
-#   ZKCI_TREE=<hash>    the tree to claim, instead of `git rev-parse HEAD^{tree}`.
+#   ZKCI_TREE=<hash>    the tree to claim, instead of HEAD^{tree}.
 #   ZKCI_ALLOW_DIRTY=1  let `prove` run with uncommitted changes.
 #
 # Needs SP1 v6.9.0 (`sp1up --version v6.9.0`) and, for reproducible builds,
@@ -22,7 +25,6 @@ set -euo pipefail
 SP1_VERSION=6.9.0
 
 here=$(cd "$(dirname "$0")" && pwd)
-repo=$(cd "$here/.." && pwd)
 out="$here/target/zkci"
 elf="$out/zkci-guest.elf"
 
@@ -35,17 +37,17 @@ tree() {
   if [[ -n "${ZKCI_TREE:-}" ]]; then
     echo "$ZKCI_TREE"
   else
-    git -C "$repo" rev-parse 'HEAD^{tree}'
+    git -C "$here" rev-parse 'HEAD^{tree}'
   fi
 }
 
-# The claimed tree is HEAD's, so uncommitted changes mean the guest runs
-# code that tree does not contain.
+# The claimed tree is this repository's HEAD, so uncommitted changes mean
+# the guest runs code that tree does not contain.
 check_clean() {
   [[ -n "${ZKCI_TREE:-}" ]] && return 0
-  if [[ -n "$(git -C "$repo" status --porcelain)" ]]; then
+  if [[ -n "$(git -C "$here" status --porcelain)" ]]; then
     if [[ "$1" == strict && "${ZKCI_ALLOW_DIRTY:-}" != 1 ]]; then
-      die "uncommitted changes: the proof would claim HEAD's tree for other code (ZKCI_ALLOW_DIRTY=1 to override)"
+      die "uncommitted changes: the proof would claim the HEAD tree for other code (ZKCI_ALLOW_DIRTY=1 to override)"
     fi
     echo "zkci: warning: uncommitted changes; results are for the working tree, not HEAD^{tree}" >&2
   fi
@@ -71,9 +73,9 @@ build() {
   command -v cargo-prove >/dev/null || die "cargo-prove not found: install SP1 v$SP1_VERSION with sp1up"
   local args=(--locked --output-directory "$out" --elf-name zkci-guest.elf)
   if [[ "${ZKCI_LOCAL_BUILD:-}" != 1 ]]; then
-    # Mount the repository root, not zkci/: the guest compiles ../api-types,
-    # and only the workspace directory is visible inside the container.
-    args+=(--docker --tag "v$SP1_VERSION" --workspace-directory "$repo")
+    # The container sees only the workspace directory, which holds
+    # targets/example, the crate the guest compiles.
+    args+=(--docker --tag "v$SP1_VERSION")
   else
     echo "zkci: local build: the ELF is not reproducible" >&2
   fi

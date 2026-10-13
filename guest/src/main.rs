@@ -1,13 +1,13 @@
-//! zkVM guest for the `api-types` suite.
+//! zkVM guest for the `zkci-example` suite.
 //!
-//! Runs every unit test in `api-types/src/tests.rs`, unmodified, and
+//! Runs every unit test in `targets/example/src/tests.rs`, unmodified, and
 //! commits a [`SuiteReport`](zkci_harness::SuiteReport) as its public
 //! values. Input: the git tree hash of the commit under test.
 //!
 //! Built for the host it is an ordinary binary (native mode) that runs the
 //! same cases, takes the tree hash as its first argument, and prints the
 //! report as JSON: the inner loop, and a cross-check that the guest runs
-//! exactly what `cargo test -p api-types` runs.
+//! exactly what `cargo test -p zkci-example` runs.
 
 #![cfg_attr(target_os = "zkvm", no_main)]
 
@@ -15,16 +15,16 @@
 sp1_zkvm::entrypoint!(main);
 
 // The test module starts with `use crate::*;`, so this crate's root has to
-// export what the api-types root does.
+// export what the zkci-example root does.
 #[allow(unused_imports)]
-use api_types::*;
+use zkci_example::*;
 
 #[allow(dead_code, unused_imports)]
 mod tests {
-    include!(concat!(env!("OUT_DIR"), "/api_types_tests.rs"));
+    include!(concat!(env!("OUT_DIR"), "/example_tests.rs"));
 }
 
-const SUITE: &str = "api-types";
+const SUITE: &str = "zkci-example";
 
 #[cfg(target_os = "zkvm")]
 pub fn main() {

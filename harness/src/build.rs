@@ -11,7 +11,7 @@
 //!
 //! ```ignore
 //! mod tests {
-//!     include!(concat!(env!("OUT_DIR"), "/api_types_tests.rs"));
+//!     include!(concat!(env!("OUT_DIR"), "/example_tests.rs"));
 //! }
 //! ```
 

@@ -106,7 +106,7 @@ mod tests {
     fn report(tree: &str, results: &[(&str, bool)]) -> SuiteReport {
         SuiteReport {
             version: REPORT_VERSION,
-            suite: "api-types".into(),
+            suite: "zkci-example".into(),
             tree: tree.into(),
             results: results
                 .iter()

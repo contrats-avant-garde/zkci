@@ -1,0 +1,10 @@
+[package]
+name = "zkci-example"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Example target for zkci: a semantic-version parser, comparator and requirement matcher"
+publish = false
+
+# No dependencies: the guest compiles this crate and its test module as they
+# are, so anything here would be built for the zkVM too.
