@@ -20,8 +20,9 @@ stays out of the root lockfile and out of root CI.
 ## Running it
 
 Requires SP1 v6.9.0 (`sp1up --version v6.9.0` installs `cargo-prove` and the
-`succinct` toolchain) and Docker for reproducible builds. The version must
-match the exact `sp1-*` pins in `Cargo.toml`.
+`succinct` toolchain), `protoc` (the SP1 SDK compiles protobufs, as the
+root workspace's libsignal does) and Docker for reproducible builds. The SP1
+version must match the exact `sp1-*` pins in `Cargo.toml`.
 
 ```sh
 zkci/prove.sh execute                     # reproducible build in Docker, then execute
