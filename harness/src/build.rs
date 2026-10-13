@@ -18,7 +18,7 @@
 use std::{fs, path::Path};
 
 use quote::quote;
-use syn::{parse_quote, Attribute, Ident, Item, ItemFn};
+use syn::{parse_quote, Attribute, Ident, Item, ItemFn, ReturnType};
 
 /// What [`collect`] found in a test module.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -62,13 +62,16 @@ pub fn rewrite(source: &str, module: &str) -> syn::Result<(String, Collected)> {
     };
     walker.walk(&mut file.items, false);
 
-    let cases = walker.cases.iter().map(|(name, path)| {
-        quote! {
-            ::zkci_harness::TestCase {
-                name: #name,
-                run: || ::zkci_harness::Outcome::check(#(#path)::*()),
-            }
-        }
+    let cases = walker.cases.iter().map(|case| {
+        let (name, path) = (&case.name, &case.path);
+        // A unit test is already a `fn()`. Only a test that returns
+        // something (a `Result`) needs the `Outcome` wrapper.
+        let run = if case.returns {
+            quote! { || ::zkci_harness::Outcome::check(#(#path)::*()) }
+        } else {
+            quote! { #(#path)::* }
+        };
+        quote! { ::zkci_harness::TestCase { name: #name, run: #run } }
     });
     let excluded = walker.collected.excluded.iter().map(|(name, reason)| {
         quote! { ::zkci_harness::Excluded { name: #name, reason: #reason } }
@@ -93,9 +96,18 @@ struct Walker<'a> {
     module: &'a str,
     /// Inline modules between the test module and the current item.
     path: Vec<Ident>,
-    /// (libtest name, path from the test module) of each runnable test.
-    cases: Vec<(String, Vec<Ident>)>,
+    cases: Vec<Case>,
     collected: Collected,
+}
+
+/// A runnable test, for the generated list.
+struct Case {
+    /// The libtest name.
+    name: String,
+    /// Path from the test module to the function.
+    path: Vec<Ident>,
+    /// Whether the function has a return type (`-> Result<..>`).
+    returns: bool,
 }
 
 enum Kind {
@@ -118,7 +130,11 @@ impl Walker<'_> {
                     path.push(f.sig.ident.clone());
                     let name = self.name(&f.sig.ident);
                     self.collected.runnable.push(name.clone());
-                    self.cases.push((name, path));
+                    self.cases.push(Case {
+                        name,
+                        path,
+                        returns: !matches!(f.sig.output, ReturnType::Default),
+                    });
                     true
                 }
                 Kind::Excluded(reason) => {
@@ -304,6 +320,10 @@ mod unix_only {
         assert_eq!(code.matches("#[test]").count(), 1);
         assert!(!code.contains("prelude::v1::test"));
         assert!(code.contains("pub(crate) static ZKCI_TESTS"));
+        // Unit tests are listed as plain fn pointers; only the Result test
+        // goes through the Outcome wrapper.
+        assert!(code.contains("run: plain"));
+        assert_eq!(code.matches("Outcome::check").count(), 1);
         assert!(code.contains("pub(crate) static ZKCI_EXCLUDED"));
     }
 

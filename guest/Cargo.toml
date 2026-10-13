@@ -6,6 +6,11 @@ license.workspace = true
 description = "zkVM guest that runs the api-types unit tests and commits a SuiteReport"
 publish = false
 
+[features]
+# Per-test cycle-tracker markers. For measurement only: the markers cost
+# cycles, so a guest built with them is not the one to prove.
+cycle-tracker = ["zkci-harness/cycle-tracker"]
+
 [dependencies]
 zkci-harness.workspace = true
 # The crate under test, and what its test module imports.

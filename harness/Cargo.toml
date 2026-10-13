@@ -11,6 +11,9 @@ publish = false
 # non-test build would drop the functions for, and generate the case list.
 # Only guest build scripts enable it, so syn never reaches a guest binary.
 build = ["dep:syn", "dep:quote", "dep:proc-macro2", "dep:prettyplease"]
+# Prints SP1 `cycle-tracker-report-*` markers around each case, so a
+# `profiling` executor reports cycles per test.
+cycle-tracker = []
 
 [dependencies]
 serde.workspace = true

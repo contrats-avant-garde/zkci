@@ -7,18 +7,20 @@
 //! - `prove`: generates a compressed proof and writes a receipt envelope.
 
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
     process::ExitCode,
     time::Instant,
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 use sp1_sdk::{
     Elf, HashableKey, ProveRequest, Prover, ProverClient, ProvingKey, SP1Stdin, SP1VerifyingKey,
 };
+use tokio::sync::watch;
 use zkci_harness::SuiteReport;
 use zkci_verify::{check::decode_report, envelope::Envelope};
 
@@ -68,15 +70,17 @@ struct Execution {
     passed: usize,
     failed: usize,
     excluded: usize,
-    /// Instructions plus syscalls: the cost proving scales with.
+    /// Executed RISC-V cycles: what proving cost scales with. SP1 6.9's
+    /// execute path leaves the report's syscall and memory counters at
+    /// zero, so they are not printed.
     cycles: u64,
-    instructions: u64,
-    syscalls: u64,
     gas: Option<u64>,
-    touched_memory_addresses: u64,
-    exit_code: u64,
     elf_bytes: usize,
     execute_ms: u128,
+    /// Cycles per test, from a `cycle-tracker` guest run by a
+    /// `profiling` build. Empty otherwise.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    per_test: BTreeMap<String, u64>,
 }
 
 #[tokio::main]
@@ -97,18 +101,26 @@ async fn run(command: Command) -> Result<ExitCode> {
             let elf_bytes = read_elf(&elf)?;
             let len = elf_bytes.len();
             let client = ProverClient::builder().light().build().await;
+            // Guest stderr carries the panic message of a failing test.
+            let (stderr_tx, stderr_rx) = watch::channel(String::new());
             let start = Instant::now();
             let (public_values, report) = client
                 .execute(elf_bytes.into(), stdin(&tree))
                 .calculate_gas(true)
+                .stderr(stderr_tx)
                 .await
-                .map_err(|e| {
-                    anyhow!(
-                        "guest execution failed: {e}. A failing test halts the guest; \
-                         run zkci-guest natively to see which one"
-                    )
-                })?;
+                .map_err(|e| anyhow!("guest execution failed: {e}"))?;
             let execute_ms = start.elapsed().as_millis();
+            // A panic halts the guest with exit code 1 before it commits
+            // anything, and execute still returns Ok.
+            if report.exit_code != 0 || public_values.as_slice().is_empty() {
+                bail!(
+                    "guest exited with code {} and committed no report: a test failed, so \
+                     no passing proof exists. Guest stderr:\n{}",
+                    report.exit_code,
+                    stderr_rx.borrow().trim_end()
+                );
+            }
             let suite = decode_report(public_values.as_slice())?;
             let out = Execution {
                 suite: suite.suite.clone(),
@@ -117,13 +129,10 @@ async fn run(command: Command) -> Result<ExitCode> {
                 failed: suite.failed(),
                 excluded: suite.excluded.len(),
                 cycles: report.total_instruction_count() + report.total_syscall_count(),
-                instructions: report.total_instruction_count(),
-                syscalls: report.total_syscall_count(),
                 gas: report.gas(),
-                touched_memory_addresses: report.touched_memory_addresses,
-                exit_code: report.exit_code,
                 elf_bytes: len,
                 execute_ms,
+                per_test: report.cycle_tracker.into_iter().collect(),
             };
             println!("{}", serde_json::to_string_pretty(&out)?);
             Ok(pass_or_fail(&suite))

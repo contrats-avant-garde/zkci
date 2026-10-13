@@ -42,3 +42,17 @@ fn main() {
         std::process::exit(1);
     }
 }
+
+#[cfg(test)]
+mod native {
+    #[test]
+    fn every_collected_test_passes_natively() {
+        let report = zkci_harness::run(
+            super::SUITE,
+            String::new(),
+            super::tests::ZKCI_TESTS,
+            super::tests::ZKCI_EXCLUDED,
+        );
+        assert!(report.is_pass(), "{report:#?}");
+    }
+}

@@ -6,6 +6,11 @@ license.workspace = true
 description = "Host side of the verifiable-CI prototype: executes or proves the guest ELF"
 publish = false
 
+[features]
+# Lets the executor read the guest's cycle-tracker markers, for the per-test
+# breakdown in `execute` output. Pair with zkci-guest's `cycle-tracker`.
+profiling = ["sp1-sdk/profiling"]
+
 [dependencies]
 zkci-harness.workspace = true
 zkci-verify.workspace = true
@@ -14,4 +19,4 @@ anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["sync"] }

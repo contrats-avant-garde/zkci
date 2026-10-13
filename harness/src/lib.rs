@@ -109,9 +109,16 @@ impl SuiteReport {
 pub fn run(suite: &str, tree: String, cases: &[TestCase], excluded: &[Excluded]) -> SuiteReport {
     let results = cases
         .iter()
-        .map(|case| TestResult {
-            name: case.name.to_owned(),
-            passed: std::panic::catch_unwind(case.run).is_ok(),
+        .map(|case| {
+            #[cfg(feature = "cycle-tracker")]
+            println!("cycle-tracker-report-start: {}", case.name);
+            let passed = std::panic::catch_unwind(case.run).is_ok();
+            #[cfg(feature = "cycle-tracker")]
+            println!("cycle-tracker-report-end: {}", case.name);
+            TestResult {
+                name: case.name.to_owned(),
+                passed,
+            }
         })
         .collect();
     SuiteReport {
@@ -130,8 +137,9 @@ pub fn run(suite: &str, tree: String, cases: &[TestCase], excluded: &[Excluded])
 }
 
 /// What a test function may return, mirroring libtest's `Termination`
-/// for the two shapes unit tests use. The generated cases call
-/// `Outcome::check(test_fn())`.
+/// for the two shapes unit tests use. A generated case for a test with a
+/// return type calls `Outcome::check(test_fn())`; a unit test is listed as
+/// the function itself.
 pub trait Outcome {
     /// Panics if the test reported failure.
     fn check(self);

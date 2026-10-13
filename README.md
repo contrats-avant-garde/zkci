@@ -28,11 +28,18 @@ version must match the exact `sp1-*` pins in `Cargo.toml`.
 zkci/prove.sh execute                     # reproducible build in Docker, then execute
 ZKCI_LOCAL_BUILD=1 zkci/prove.sh execute  # build with the local toolchain instead
 cargo run --manifest-path zkci/Cargo.toml -p zkci-guest -- "$(git rev-parse HEAD^{tree})"   # native mode
-cargo test --manifest-path zkci/Cargo.toml --workspace --all-features   # the prototype's own tests
+cargo test --manifest-path zkci/Cargo.toml --workspace                   # the prototype's own tests
+cargo test --manifest-path zkci/Cargo.toml -p zkci-harness --features build   # and the collector's
 ```
 
-`prove` and `verify` are wired but have not been run. This milestone stops
-at `execute`.
+For a per-test cycle breakdown, build the guest with
+`cargo prove build --features cycle-tracker` and run it with a `zkci-prove`
+built with `--features profiling`. The markers cost cycles, so never prove
+that build.
+
+`prove` has not been run, because this milestone stops at `execute`. So
+`zkci-verify` has only been exercised on its rejection paths: unimplemented
+evidence types, undecodable keys, and missing flags.
 
 ## Decisions
 
@@ -75,7 +82,10 @@ tests than the crate has. For `api-types` that is one test,
 suite name, the git tree hash it was given, `(name, passed)` per test, and
 the excluded tests. In the guest a failing test halts execution with a
 non-zero exit code before anything is committed, so no passing proof can
-exist for a failing suite. In native mode failures are caught and listed.
+exist for a failing suite. SP1 6.9's `execute` returns `Ok` even then, so
+`zkci-prove execute` checks the exit code itself and prints the guest's
+stderr, which holds the assertion message. In native mode failures are
+caught and listed.
 
 **Receipt envelope.** The receipt is versioned JSON with an `evidence.type`
 tag (`zkvm` | `signed` | `tee`), as §6 of the design asks. Only `zkvm` is
@@ -97,12 +107,16 @@ the guest from that commit and gets the same verifying key.
   `pkg-containers.githubusercontent.com`, which the environment this was
   built in cannot reach. The numbers in `BENCH.md` come from a local
   toolchain build of the same source.
+- **Local builds embed absolute paths.** Panic locations put the checkout
+  path and the build script's `OUT_DIR` into the ELF. A local build is
+  byte-identical on rebuild at the same path, but a different path gives a
+  different verifying key. The Docker build mounts the repo at a fixed path.
 - **`zkci-verify` links the full `sp1-sdk`** (its light prover, which
   verifies but never proves), so it is not yet the "tiny verifier". The
-  smaller option, `sp1-verifier`'s `SP1CompressedVerifierRaw`, does **not**
-  check the guest's exit code. Anyone switching to it must add that check, or
-  rely on the guest committing nothing when it fails, which it does today.
-  A Groth16 wrap is the other path to milliseconds-scale verification.
+  smaller option, `sp1-verifier`'s `SP1CompressedVerifierRaw`, cannot verify
+  these proofs: it rejects single-shard proofs, and this suite is one shard.
+  It also does **not** check the guest's exit code. A Groth16 wrap is the
+  realistic path to milliseconds-scale verification.
 - **The guest has its own lockfile.** It compiles `api-types` against
   `zkci/Cargo.lock`, which can resolve different `serde`/`serde_json`
   versions than the root lockfile CI tests with.
