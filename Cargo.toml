@@ -1,0 +1,33 @@
+# Verifiable-CI prototype (docs/zk-ci-design.md, milestones M1–M3).
+#
+# A workspace of its own, excluded from the root one on purpose: the SP1 SDK
+# is a very large dependency tree, and keeping it here keeps it out of the
+# root Cargo.lock and out of every root CI lane. Nothing in the node depends
+# on anything in this directory.
+[workspace]
+resolver = "2"
+members = ["harness", "guest", "prover", "verify"]
+
+[workspace.package]
+edition = "2021"
+license = "AGPL-3.0-only"
+
+[workspace.dependencies]
+zkci-harness = { path = "harness" }
+zkci-verify = { path = "verify" }
+# The M0 target: the smallest pure-logic crate in the repo with unit tests.
+api-types = { path = "../api-types" }
+
+# Pinned exactly. The guest's verifying key, the receipt format and the
+# docker image used for reproducible builds all depend on this version, and
+# `cargo-prove` (which picks the docker tag) must be the same release.
+sp1-sdk = "=6.9.0"
+sp1-zkvm = "=6.9.0"
+
+anyhow = "1"
+bincode = "1"
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

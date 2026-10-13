@@ -1,0 +1,17 @@
+[package]
+name = "zkci-prove"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Host side of the verifiable-CI prototype: executes or proves the guest ELF"
+publish = false
+
+[dependencies]
+zkci-harness.workspace = true
+zkci-verify.workspace = true
+sp1-sdk.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
